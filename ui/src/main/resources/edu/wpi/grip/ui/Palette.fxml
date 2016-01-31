@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?language javascript?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.layout.VBox?>
+<?import org.controlsfx.control.textfield.CustomTextField?>
+<VBox fillWidth="true" styleClass="palette" fx:controller="edu.wpi.grip.ui.PaletteController"
+      xmlns:fx="http://javafx.com/fxml/1" onKeyPressed="operationSearch.requestFocus()" fx:id="root">
+    <Label styleClass="pane-title" text="Operation Palette" maxWidth="Infinity"/>
+    <CustomTextField fx:id="operationSearch" promptText="Search"/>
+    <ScrollPane fitToHeight="true" fitToWidth="true" hbarPolicy="NEVER" vbarPolicy="AS_NEEDED" VBox.vgrow="ALWAYS">
+        <VBox fx:id="operations"/>
+    </ScrollPane>
+</VBox>

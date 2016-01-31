@@ -1,0 +1,258 @@
+buildscript {
+    repositories { jcenter() }
+
+    dependencies {
+        classpath 'com.netflix.nebula:gradle-aggregate-javadocs-plugin:2.2.+'
+    }
+}
+plugins {
+    id 'java'
+    id 'idea'
+    id 'eclipse'
+    id 'jacoco'
+    id 'com.google.osdetector' version '1.4.0'
+    id 'com.github.johnrengelman.shadow' version '1.2.2'
+}
+apply plugin: 'nebula-aggregate-javadocs'
+
+
+allprojects {
+    apply plugin: 'java'
+    apply plugin: 'application'
+    apply plugin: 'jacoco'
+
+
+    repositories {
+        mavenCentral()
+        jcenter()
+    }
+    jacoco {
+        toolVersion = "0.7.5.201505241946"
+    }
+
+
+    dependencies {
+        testCompile group: 'net.jodah', name: 'concurrentunit', version: '0.4.2'
+        testCompile group: 'org.hamcrest', name: 'hamcrest-all', version: '1.3'
+        testCompile group: 'junit', name: 'junit', version: '4.12'
+    }
+
+    version = '1.1.1'
+
+    compileJava {
+        options.compilerArgs << "-g"
+    }
+
+    jacocoTestReport {
+        reports {
+            xml.enabled = true
+            html.enabled = true
+        }
+    }
+
+    check.dependsOn jacocoTestReport
+
+    tasks.withType(Javadoc) {
+        source compileJava.source
+        options.addStringOption('Xdoclint:all,-html', '-quiet')
+        failOnError false
+    }
+
+    tasks.withType(JavaExec) {
+        enableAssertions = true
+    }
+
+    // Turn on test results
+    test {
+        testLogging {
+            events "failed"
+            exceptionFormat "full"
+        }
+        doFirst {
+            filter.includePatterns.each {
+                include "${it.replaceAll('\\.', "\\${File.separator}")}.class"
+            }
+            filter.setIncludePatterns('*')
+        }
+    }
+}
+
+def os = osdetector.classifier.replace("osx", "macosx").replace("windows-x86_32", "windows-x86")
+
+project(":core") {
+    apply plugin: 'java'
+    apply plugin: 'idea'
+    apply plugin: 'jacoco'
+    apply plugin: "com.github.johnrengelman.shadow"
+
+    configurations {
+        shadow
+    }
+
+    repositories {
+        flatDir {
+            dirs 'libs'
+            maven {
+                url = "http://first.wpi.edu/FRC/roborio/maven/development"
+            }
+        }
+    }
+
+    dependencies {
+        compile group: 'org.bytedeco', name: 'javacv', version: '1.1'
+        compile group: 'org.bytedeco.javacpp-presets', name: 'opencv', version: '3.0.0-1.1'
+        compile group: 'org.bytedeco.javacpp-presets', name: 'opencv', version: '3.0.0-1.1', classifier: os
+        compile group: 'org.bytedeco.javacpp-presets', name: 'opencv-3.0.0-1.1', classifier: 'linux-frc'
+        compile group: 'org.bytedeco.javacpp-presets', name: 'videoinput', version: '0.200-1.1', classifier: os
+        compile group: 'org.python', name: 'jython', version: '2.7.0'
+        compile group: 'com.thoughtworks.xstream', name: 'xstream', version: '1.4.8'
+        compile group: 'org.apache.commons', name: 'commons-lang3', version: '3.4'
+        compile group: 'com.google.guava', name: 'guava', version: '18.0'
+        // We use the no_aop version of Guice because the aop isn't avaiable in arm java
+        // http://stackoverflow.com/a/15235190/3708426
+        // https://github.com/google/guice/wiki/OptionalAOP
+        compile group: 'com.google.inject', name: 'guice', version: '4.0', classifier: 'no_aop'
+        compile group: 'com.google.inject.extensions', name: 'guice-assistedinject', version: '4.0'
+        compile group: 'edu.wpi.first.wpilib.networktables.java', name: 'NetworkTables', version: '3.0.0-SNAPSHOT', classifier: 'desktop'
+        compile group: 'edu.wpi.first.wpilib.networktables.java', name: 'NetworkTables', version: '3.0.0-SNAPSHOT', classifier: 'arm'
+    }
+
+    mainClassName = 'edu.wpi.grip.core.Main'
+
+    jar {
+        manifest {
+            attributes 'Implementation-Version': version, 'Main-Class': mainClassName
+        }
+    }
+
+    shadowJar {
+        artifacts {
+            shadow(tasks.shadowJar.archivePath) {
+                builtBy shadowJar
+            }
+        }
+
+        /* The icudt54b directory in Jython takes up 9 megabytes and doesn't seem to do anything useful. */
+        exclude 'org/python/icu/impl/data/icudt54b/'
+
+        /* We don't use all of the OpenCV libraries, and they seem to take up a lot of space.  If we ever decide to
+        use any more of these (or perhaps just include them for people to use from Python scripts), the following lines
+        should be changed, but for now this saves us a lot of space. */
+        exclude 'org/bytedeco/javacpp/*/*calib3d*'
+        exclude 'org/bytedeco/javacpp/*/*face*'
+        exclude 'org/bytedeco/javacpp/*/*objdetect*'
+        exclude 'org/bytedeco/javacpp/*/*optflow*'
+        exclude 'org/bytedeco/javacpp/*/*photo*'
+        exclude 'org/bytedeco/javacpp/*/*shape*'
+        exclude 'org/bytedeco/javacpp/*/*stitching*'
+        exclude 'org/bytedeco/javacpp/*/*superres*'
+        exclude 'org/bytedeco/javacpp/*/*videostab*'
+        exclude 'org/bytedeco/javacpp/*/*xfeatures2d*'
+    }
+
+    sourceSets {
+        generated {
+            java {
+                /* Note: When referencing this it becomes `srcDirs` */
+                srcDir 'src/generated/java'
+            }
+        }
+    }
+
+    task generateCodeFromSource(type: CodeGenerator) {
+        description 'Generates the Operation Wrappers for the OpenCV methods.\n To skip run with parm `-PskipGenerate`'
+        dest sourceSets.generated.java.srcDirs
+        removeExisting true
+    }
+    generateCodeFromSource.onlyIf { !project.hasProperty('skipGenerate') }
+    compileJava.source sourceSets.generated.java, sourceSets.main.java
+    compileJava.dependsOn generateCodeFromSource
+
+    // IDE setup
+    eclipse.classpath {
+        file.whenMerged { cp ->
+            sourceSets.generated.java.srcDirs.forEach { srcDir ->
+                def source_folder = new org.gradle.plugins.ide.eclipse.model.SourceFolder(srcDir.getAbsolutePath(), "build/classes/merged")
+                if (cp.entries.find() { it.path == source_folder.path } == null)
+                    cp.entries.add(source_folder)
+            }
+        }
+    }
+
+    idea.module {
+        sourceDirs += sourceSets.generated.java.srcDirs
+    }
+    // End IDE setup
+}
+
+project(":ui") {
+    apply plugin: 'java'
+    apply plugin: 'idea'
+    apply plugin: 'jacoco'
+    apply plugin: 'application'
+    apply from: 'http://dl.bintray.com/shemnon/javafx-gradle/8.1.1/javafx.plugin'
+
+    configurations {
+        ideProvider
+    }
+
+    dependencies {
+        compile project(path: ':core', configuration: 'shadow')
+        ideProvider project(path: ':core', configuration: 'compile')
+        compile group: 'org.controlsfx', name: 'controlsfx', version: '8.40.10'
+        compile group: 'com.hierynomus', name: 'sshj', version: '0.15.0'
+        testCompile files(project(':core').sourceSets.test.output.classesDir)
+        testCompile files(project(':core').sourceSets.test.output.resourcesDir)
+        testCompile group: 'org.testfx', name: 'testfx-core', version: '4.0.+'
+        testCompile group: 'org.testfx', name: 'testfx-junit', version: '4.0.+'
+    }
+
+    evaluationDependsOn(':core')
+    compileTestJava.dependsOn tasks.getByPath(':core:testClasses')
+
+    idea.module {
+        scopes.PROVIDED.plus += [configurations.ideProvider]
+    }
+
+    javafx {
+        appID = 'GRIP'
+        appName = 'GRIP'
+        mainClass = "edu.wpi.grip.ui.Main"
+
+        // This prevents the JIT from eating stack traces that get thrown a lot
+        // This is slower but means we actually get the stack traces instead of
+        // having them become one line like `java.lang.ArrayIndexOutOfBoundsException`
+        // and as such, would be useless.
+        // See: https://plumbr.eu/blog/java/on-a-quest-for-missing-stacktraces
+        jvmArgs = ["-XX:-OmitStackTraceInFastThrow"]
+    }
+    mainClassName = javafx.mainClass
+}
+
+/*
+ * This is roughly based upon this post:
+ * https://discuss.gradle.org/t/merge-jacoco-coverage-reports-for-multiproject-setups/12100/6
+ */
+task jacocoRootReport(type: JacocoReport, group: 'Coverage reports') {
+    description = 'Generates an aggregate report from all subprojects'
+    dependsOn(subprojects.test)
+
+    additionalSourceDirs = files(subprojects.sourceSets.main.allSource.srcDirs)
+    sourceDirectories = files(subprojects.sourceSets.main.allSource.srcDirs)
+    classDirectories = files(subprojects.sourceSets.main.output)
+    executionData = files(subprojects.jacocoTestReport.executionData)
+
+    reports {
+        html.enabled = true
+        xml.enabled = true
+    }
+
+    doFirst {
+        executionData = files(executionData.findAll { it.exists() })
+    }
+}
+check.dependsOn jacocoRootReport
+
+task wrapper(type: Wrapper) {
+    gradleVersion = '2.10'
+}
